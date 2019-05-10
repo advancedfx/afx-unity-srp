@@ -10,6 +10,8 @@ namespace UnityEngine.Rendering.LWRP
     /// </summary>
     internal class DepthOnlyPass : ScriptableRenderPass
     {
+		CommandBuffer afxCommand;
+		
         int kDepthBufferBits = 32;
 
         private RenderTargetHandle depthAttachmentHandle { get; set; }
@@ -33,7 +35,8 @@ namespace UnityEngine.Rendering.LWRP
         /// </summary>
         public void Setup(
             RenderTextureDescriptor baseDescriptor,
-            RenderTargetHandle depthAttachmentHandle)
+            RenderTargetHandle depthAttachmentHandle,
+			CommandBuffer afxCommand)
         {
             this.depthAttachmentHandle = depthAttachmentHandle;
             baseDescriptor.colorFormat = RenderTextureFormat.Depth;
@@ -42,6 +45,8 @@ namespace UnityEngine.Rendering.LWRP
             // Depth-Only pass don't use MSAA
             baseDescriptor.msaaSamples = 1;
             descriptor = baseDescriptor;
+			
+			this.afxCommand = afxCommand;
         }
 
         public override void Configure(CommandBuffer cmd, RenderTextureDescriptor cameraTextureDescriptor)
@@ -59,6 +64,8 @@ namespace UnityEngine.Rendering.LWRP
             {
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
+				
+				if(null != afxCommand) context.ExecuteCommandBuffer(afxCommand);
 
                 m_FilteringSettings.layerMask = renderingData.cameraData.camera.cullingMask;
                 var sortFlags = renderingData.cameraData.defaultOpaqueSortFlags;
@@ -71,7 +78,6 @@ namespace UnityEngine.Rendering.LWRP
                     context.StartMultiEye(camera);
 
                 context.DrawRenderers(renderingData.cullResults, ref drawSettings, ref m_FilteringSettings);
-
             }
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);

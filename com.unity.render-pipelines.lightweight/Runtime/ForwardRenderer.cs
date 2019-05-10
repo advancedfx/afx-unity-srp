@@ -1,10 +1,36 @@
 namespace UnityEngine.Rendering.LWRP
 {
+	public class AfxInteropBase : MonoBehaviour
+	{
+		public virtual bool GetAfxActive()
+		{
+			return false;
+		}
+		
+		public virtual CommandBuffer GetAfxBegin()
+		{
+			return null;
+		}
+		
+		public virtual CommandBuffer GetAfxEnd()
+		{
+			return null;
+		}
+		
+		public virtual CommandBuffer GetAfxLoadDepth()
+		{
+			return null;
+		}
+	}
+	
     internal class ForwardRenderer : ScriptableRenderer
     {
         const int k_DepthStencilBufferBits = 32;
         const string k_CreateCameraTextures = "Create Camera Texture";
 
+		AfxCommandPass m_AfxBeginPass;
+		AfxCommandPass m_AfxDrawPass;
+		AfxCommandPass m_AfxEndPass;
         DepthOnlyPass m_DepthPrepass;
         MainLightShadowCasterPass m_MainLightShadowCasterPass;
         AdditionalLightsShadowCasterPass m_AdditionalLightsShadowCasterPass;
@@ -43,6 +69,9 @@ namespace UnityEngine.Rendering.LWRP
 
             // Note: Since all custom render passes inject first and we have stable sort,
             // we inject the builtin passes in the before events.
+			m_AfxBeginPass = new AfxCommandPass(RenderPassEvent.BeforeRenderingPrepasses);
+			m_AfxDrawPass = new AfxCommandPass(RenderPassEvent.BeforeRenderingPrepasses);
+			m_AfxEndPass = new AfxCommandPass(RenderPassEvent.AfterRendering);
             m_MainLightShadowCasterPass = new MainLightShadowCasterPass(RenderPassEvent.BeforeRenderingShadows);
             m_AdditionalLightsShadowCasterPass = new AdditionalLightsShadowCasterPass(RenderPassEvent.BeforeRenderingShadows);
             m_DepthPrepass = new DepthOnlyPass(RenderPassEvent.BeforeRenderingPrepasses, RenderQueueRange.opaque);
@@ -74,7 +103,19 @@ namespace UnityEngine.Rendering.LWRP
         {
             Camera camera = renderingData.cameraData.camera;
             RenderTextureDescriptor cameraTargetDescriptor = renderingData.cameraData.cameraTargetDescriptor;
-
+			
+			AfxInteropBase afxInterop = camera.GetComponent<AfxInteropBase>();
+			
+			if(null != afxInterop)
+			{
+				CommandBuffer afxCommand = afxInterop.GetAfxBegin();
+				if(null != afxCommand)
+				{
+					m_AfxBeginPass.Setup(afxCommand);
+					EnqueuePass(m_AfxBeginPass);
+				}
+			}
+			
             bool mainLightShadows = m_MainLightShadowCasterPass.Setup(ref renderingData);
             bool additionalLightShadows = m_AdditionalLightsShadowCasterPass.Setup(ref renderingData);
             bool resolveShadowsInScreenSpace = mainLightShadows && renderingData.shadowData.requiresScreenSpaceShadowResolve;
@@ -95,6 +136,7 @@ namespace UnityEngine.Rendering.LWRP
             bool postProcessEnabled = renderingData.cameraData.postProcessEnabled;
             bool hasOpaquePostProcess = postProcessEnabled &&
                 renderingData.cameraData.postProcessLayer.HasOpaqueOnlyEffects(RenderingUtils.postProcessRenderContext);
+			requiresDepthPrepass |= postProcessEnabled && afxInterop != null && null != afxInterop.GetAfxLoadDepth();
 
             m_ActiveCameraColorAttachment = (createColorTexture) ? m_CameraColorAttachment : RenderTargetHandle.CameraTarget;
             m_ActiveCameraDepthAttachment = (createDepthTexture) ? m_CameraDepthAttachment : RenderTargetHandle.CameraTarget;
@@ -114,16 +156,16 @@ namespace UnityEngine.Rendering.LWRP
                     activeRenderPassQueue.RemoveAt(i);
             }
             bool hasAfterRendering = activeRenderPassQueue.Find(x => x.renderPassEvent == RenderPassEvent.AfterRendering) != null;
-
+			
             if (mainLightShadows)
                 EnqueuePass(m_MainLightShadowCasterPass);
 
             if (additionalLightShadows)
                 EnqueuePass(m_AdditionalLightsShadowCasterPass);
-
-            if (requiresDepthPrepass)
+		
+			if (requiresDepthPrepass)
             {
-                m_DepthPrepass.Setup(cameraTargetDescriptor, m_DepthTexture);
+                m_DepthPrepass.Setup(cameraTargetDescriptor, m_DepthTexture, afxInterop != null ? afxInterop.GetAfxLoadDepth() : null);
                 EnqueuePass(m_DepthPrepass);
             }
 
@@ -132,8 +174,9 @@ namespace UnityEngine.Rendering.LWRP
                 m_ScreenSpaceShadowResolvePass.Setup(cameraTargetDescriptor);
                 EnqueuePass(m_ScreenSpaceShadowResolvePass);
             }
-
+			
             EnqueuePass(m_RenderOpaqueForwardPass);
+			
 
             if (hasOpaquePostProcess)
                 m_OpaquePostProcessPass.Setup(cameraTargetDescriptor, m_ActiveCameraColorAttachment, m_ActiveCameraColorAttachment);
@@ -155,7 +198,7 @@ namespace UnityEngine.Rendering.LWRP
             }
 
             EnqueuePass(m_RenderTransparentForwardPass);
-
+			
             bool afterRenderExists = renderingData.cameraData.captureActions != null ||
                                      hasAfterRendering;
 
@@ -204,6 +247,16 @@ namespace UnityEngine.Rendering.LWRP
                 EnqueuePass(m_SceneViewDepthCopyPass);
             }
 #endif
+
+			if(null != afxInterop)
+			{
+				CommandBuffer afxCommand = afxInterop.GetAfxEnd();
+				if(null != afxCommand)
+				{
+					m_AfxEndPass.Setup(afxCommand);
+					EnqueuePass(m_AfxEndPass);
+				}
+			}
         }
 
         public override void SetupLights(ScriptableRenderContext context, ref RenderingData renderingData)
