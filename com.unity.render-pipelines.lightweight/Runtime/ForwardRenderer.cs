@@ -104,7 +104,10 @@ namespace UnityEngine.Rendering.LWRP
             Camera camera = renderingData.cameraData.camera;
             RenderTextureDescriptor cameraTargetDescriptor = renderingData.cameraData.cameraTargetDescriptor;
 			
-			AfxInteropBase afxInterop = camera.GetComponent<AfxInteropBase>();
+			
+			GameObject afxInteropGameObject = GameObject.FindWithTag("AfxInterop");
+			
+			AfxInteropBase afxInterop = null != afxInteropGameObject ? afxInteropGameObject.GetComponent<AfxInteropBase>() : null;
 			
 			if(null != afxInterop)
 			{
